@@ -1,0 +1,22 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Application stack
+Parameters:
+  S3BucketName:
+    Type: String
+    Description: GENERATED
+  S3BucketSecureURL:
+    Type: String
+    Description: GENERATED
+  IAMServiceRole:
+    Type: String
+  LastChange:
+    Type: String
+    Description: GENERATED
+Resources:
+  ApiGateway:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub ${S3BucketSecureURL}/helloapp.yaml
+Outputs:
+  EndpointUrl:
+    Value: !GetAtt ApiGateway.Outputs.Url
