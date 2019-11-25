@@ -1,0 +1,65 @@
+# source: https://swagger.io/docs/specification/basic-structure/
+# https://app.swaggerhub.com/help/integrations/amazon-api-gateway-lambda-sync?_ga=2.126107533.165705350.1574424827-1934507054.1573659827
+openapi: 3.0.0
+info:
+  title: Sample API
+  description: Yet Another Example
+  version: "2019-10-13"
+
+x-amazon-apigateway-request-validators:
+  all:
+    validateRequestBody: true
+    validateRequestParameters: true
+x-amazon-apigateway-request-validator: all
+
+x-amazon-apigateway-gateway-responses:
+  BAD_REQUEST_BODY:
+    responseTemplates:
+      application/json: '{"errorCode": "BadRequestBody", "message": "$context.error.validationErrorString"}'
+    responseParameters:
+      gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+  DEFAULT_4XX:
+    responseParameters:
+      gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+  DEFAULT_5XX:
+    responseParameters:
+      gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+
+paths:
+  /greetings/{name}:
+    parameters:
+      - in: path
+        name: name
+        schema:
+          type: string
+        required: true
+    get:
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GreetingsFunction.Arn}/invocations"
+        passthroughBehavior: when_no_match
+        httpMethod: POST
+        type: aws_proxy
+      responses:
+        "200":
+          description: "Always return success"
+          statusCode: "200"
+          responseParameters:
+            method.response.header.requestId: "integration.response.header.cid"
+            responseTemplates:
+              application/json: "$input.json('$.body')"
+    post:
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GreetingsFunction.Arn}/invocations"
+        passthroughBehavior: when_no_match
+        httpMethod: POST
+        type: aws_proxy
+      responses:
+        "200":
+          description: "Always return success"
+          statusCode: "200"
+          responseParameters:
+            method.response.header.requestId: "integration.response.header.cid"
+            responseTemplates:
+              application/json: "$input.json('$.body')"

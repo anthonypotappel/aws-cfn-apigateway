@@ -16,7 +16,10 @@ Resources:
   ApiGateway:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub ${S3BucketSecureURL}/helloapp.yaml
+      Parameters:
+        Stage: prod
+        S3BucketName: !Ref S3BucketName
+      TemplateURL: !Sub ${S3BucketSecureURL}/serverless.yaml
 Outputs:
   EndpointUrl:
     Value: !GetAtt ApiGateway.Outputs.Url

@@ -1,0 +1,55 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: >-
+  This template creates API Gateway and Lambda resources for the backend service.
+Parameters:
+  S3BucketName:
+    Type: String
+    Description: GENERATED
+  Stage:
+    Type: String
+    Description: The stage where the application is running
+Resources:
+  Api:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Stage
+      OpenApiVersion: '3.0.0'
+      #DefinitionUri: 
+      #  Bucket: !Ref S3BucketName
+      #  Key: app/swagger.yaml
+      DefinitionBody:
+        'Fn::Transform':
+          Name: 'AWS::Include'
+          Parameters:
+            Location: !Sub s3://${S3BucketName}/app/swagger.yaml
+
+  GreetingsPermission:
+    Type: AWS::Lambda::Permission
+    Properties: 
+      Action: lambda:InvokeFunction
+      #EventSourceToken: String
+      FunctionName: !GetAtt GreetingsFunction.Arn
+      Principal: apigateway.amazonaws.com
+      #SourceAccount: String
+      #SourceArn: String
+ 
+  GreetingsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.7
+      Handler: index.handler
+      InlineCode: |
+        def handler(event, context):
+          response = {
+            'statusCode': 200,
+            'body': 'Hello, Lambda GET!'
+          }
+          return response
+          #return event['name']
+
+Outputs:
+  Url:
+    Description: Endpoint URL
+    Value: #!Sub 'https://${HelloApp}.execute-api.${AWS::Region}.amazonaws.com/LATEST/hello'
+    Value: !Ref Api
