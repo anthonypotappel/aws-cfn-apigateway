@@ -20,7 +20,7 @@ paths:
           name: name
           required: true
           schema:
-            $ref: '#/components/responses/Username'
+            $ref: '#/components/responses/Name'
       x-amazon-apigateway-integration:
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UserCreateFunction.Arn}/invocations"
@@ -37,7 +37,7 @@ paths:
           name: name
           required: true
           schema:
-            $ref: '#/components/responses/Username'
+            $ref: '#/components/responses/Name'
       x-amazon-apigateway-integration:
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UserDeleteFunction.Arn}/invocations"
