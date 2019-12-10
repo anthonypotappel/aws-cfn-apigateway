@@ -24,17 +24,21 @@ Resources:
           Parameters:
             Location: !Sub s3://${S3BucketName}/app/swagger.yaml
 
-  GreetingsPermission:
+  UserCreatePermission:
     Type: AWS::Lambda::Permission
     Properties: 
       Action: lambda:InvokeFunction
-      #EventSourceToken: String
-      FunctionName: !GetAtt GreetingsFunction.Arn
+      FunctionName: !GetAtt UserCreateFunction.Arn
       Principal: apigateway.amazonaws.com
-      #SourceAccount: String
-      #SourceArn: String
- 
-  GreetingsFunction:
+
+  UserDeletePermission:
+    Type: AWS::Lambda::Permission
+    Properties: 
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt UserDeleteFunction.Arn
+      Principal: apigateway.amazonaws.com
+
+  UserCreateFunction:
     Type: AWS::Serverless::Function
     Properties:
       Runtime: python3.7
@@ -43,10 +47,22 @@ Resources:
         def handler(event, context):
           response = {
             'statusCode': 200,
-            'body': 'Hello, Lambda GET!'
+            'body': 'Hello, Lambda Create!'
           }
           return response
-          #return event['name']
+ 
+  UserDeleteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.7
+      Handler: index.handler
+      InlineCode: |
+        def handler(event, context):
+          response = {
+            'statusCode': 200,
+            'body': 'Hello, Lambda Delete!'
+          }
+          return response
 
 Outputs:
   Url:
