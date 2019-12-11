@@ -45,54 +45,59 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !GetAtt UserDeleteFunction.Arn
       Principal: apigateway.amazonaws.com
+      #SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}
 
   UserCreateFunction:
     Type: AWS::Serverless::Function
     Properties:
       Runtime: python3.7
       Handler: index.handler
+      Policies:
+      - Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Action:
+          - dynamodb:PutItem
+          Resource: !GetAtt UserTable.Arn
       InlineCode: |
-
         import json
         import boto3
         
-        #try:
-        dynamodb = boto3.resource('dynamodb')
-        #except Exception as e:
-        #    logger.warning("Could not initialize boto3")
-        
+        try:
+          dynamodb = boto3.resource('dynamodb')
+        except Exception as e:
+          _raise(Exception, "Message:" + str(e))
+      
+        value = lambda dictionary, key: dictionary[key] if key in dictionary else ""
         
         def _raise(exception, error):
           raise exception(error)
         
-        def create_user(payload, context):
-        
-            table_name = context['DynamoDBTable']
-            print(' DEBUG LAMBDA ')
-            print( json.dumps(payload, indent=4 ) )
-            print( table_name )
-        
-            table = dynamodb.Table(table_name)
-            table.put_item(Item=payload)
+        def create_user(payload, stagevars, context):
+            table = dynamodb.Table(stagevars['DynamoDBTable'])
+
+            record = {
+              "SourceIP": value(context, "source-ip"),
+              "UserAgent": value(context, "user-agent")
+            }
+            record.update(payload)
+            table.put_item(Item=record)
+            return record
         
         def handler(event,_):
-            print( "START DEBUG EVENT" )
-            print( json.dumps(event) )
-            print( "END DEBUG EVENT" )
-
             try:
-                payload = event['body-json']
-                context = event['stage-variables']
-                create_user(payload, context)
+                record = create_user(event['body-json'],
+                                     event['stage-variables'],
+                                     event['context'])
         
                 response = {
                   'statusCode': 200,
-                  'body': json.dumps({"Name": payload['Name']})
+                  'body': json.dumps(record)
                 }
                 return response
+
             except Exception as e:
                 _raise(Exception, 'Message:' + str(e))
-
  
   UserDeleteFunction:
     Type: AWS::Serverless::Function
