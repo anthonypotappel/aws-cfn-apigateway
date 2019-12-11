@@ -10,20 +10,28 @@ Parameters:
     Type: String
     Description: The stage where the application is running
 Resources:
+  UserTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: Username
+          AttributeType: S
+      KeySchema:
+        - AttributeName: Username
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
   Api:
     Type: AWS::Serverless::Api
     Properties:
       StageName: !Ref Stage
       OpenApiVersion: '3.0.0'
-      #DefinitionUri: 
-      #  Bucket: !Ref S3BucketName
-      #  Key: app/swagger.yaml
+      Variables:
+        DynamoDBTable: !Ref UserTable
       DefinitionBody:
         'Fn::Transform':
           Name: 'AWS::Include'
           Parameters:
             Location: !Sub s3://${S3BucketName}/app/swagger.yaml
-
   UserCreatePermission:
     Type: AWS::Lambda::Permission
     Properties: 
@@ -44,12 +52,47 @@ Resources:
       Runtime: python3.7
       Handler: index.handler
       InlineCode: |
-        def handler(event, context):
-          response = {
-            'statusCode': 200,
-            'body': 'Hello, Lambda Create!'
-          }
-          return response
+
+        import json
+        import boto3
+        
+        #try:
+        dynamodb = boto3.resource('dynamodb')
+        #except Exception as e:
+        #    logger.warning("Could not initialize boto3")
+        
+        
+        def _raise(exception, error):
+          raise exception(error)
+        
+        def create_user(payload, context):
+        
+            table_name = context['DynamoDBTable']
+            print(' DEBUG LAMBDA ')
+            print( json.dumps(payload, indent=4 ) )
+            print( table_name )
+        
+            table = dynamodb.Table(table_name)
+            table.put_item(Item=payload)
+        
+        def handler(event,_):
+            print( "START DEBUG EVENT" )
+            print( json.dumps(event) )
+            print( "END DEBUG EVENT" )
+
+            try:
+                payload = event['body-json']
+                context = event['stage-variables']
+                create_user(payload, context)
+        
+                response = {
+                  'statusCode': 200,
+                  'body': json.dumps({"Name": payload['Name']})
+                }
+                return response
+            except Exception as e:
+                _raise(Exception, 'Message:' + str(e))
+
  
   UserDeleteFunction:
     Type: AWS::Serverless::Function
@@ -67,5 +110,4 @@ Resources:
 Outputs:
   Url:
     Description: Endpoint URL
-    Value: #!Sub 'https://${HelloApp}.execute-api.${AWS::Region}.amazonaws.com/LATEST/hello'
-    Value: !Ref Api
+    Value: !Sub 'https://${Api}.execute-api.${AWS::Region}.amazonaws.com/${Stage}'
