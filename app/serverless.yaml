@@ -32,6 +32,23 @@ Resources:
           Name: 'AWS::Include'
           Parameters:
             Location: !Sub s3://${S3BucketName}/app/swagger.yaml
+
+
+  APIGatewayRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: apigateway.amazonaws.com
+          Action: sts:AssumeRole
+          Condition: {}
+      Path: /
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
+
+
   UserCreatePermission:
     Type: AWS::Lambda::Permission
     Properties: 
