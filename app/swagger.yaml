@@ -68,24 +68,59 @@ paths:
       responses:
         "200":
           $ref: '#/components/responses/ListUser'
-  /users/{name}:
+  /usersget:
     get:
       summary: Return user by Name
-      parameters:
-        - in: path
-          name: name
-          required: true
-          schema:
-            $ref: '#/components/schemas/Name'
+      #parameters:
+      #  - in: path
+      #    name: name
+      #    required: true
+      #    schema:
+      #      $ref: '#/components/schemas/Name'
       x-amazon-apigateway-integration:
-        uri:
-          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UserCreateFunction.Arn}/invocations"
+        credentials:
+          Fn::GetAtt: APIGatewayRole.Arn
+        uri: 
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:dynamodb:action/Scan"
         passthroughBehavior: WHEN_NO_MATCH
         httpMethod: POST
-        type: aws_proxy
+        type: aws
+        #https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_Condition.html
+        #https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_Query.html#DDB-Query-request-Limit
+        requestTemplates:
+          application/json:
+            Fn::Sub: |
+              {
+                "TableName": "${UserTable}",
+                "ScanFilter": {
+                  "Username": {
+                    "AttributeValueList":[ {"S":"$input.params('Username')"} ],
+                     "ComparisonOperator": "CONTAINS"
+                  }
+                }
+              }
+        responses:
+          default:
+            statusCode: 200
+            responseTemplates:
+              application/json: |
+                [
+                #foreach($item in $input.path('$.Items'))
+                {
+                    "Username": "$item.Username.S",
+                    "Email": "$item.Email.S",
+                    "SourceIP": "$item.SourceIP.S",
+                    "UserAgent": "$item.UserAgent.S"
+                }
+                #if($foreach.hasNext), #end
+                #end
+                ]
+        
       responses:
         "200":
-          $ref: '#/components/responses/ListUser'
+          statusCode: 200
+          #$ref: '#/components/responses/ListUser'
+  /users/{name}:
     delete:
       summary: Delete user by Name
       parameters:
