@@ -6,27 +6,21 @@ Parameters:
   S3BucketName:
     Type: String
     Description: GENERATED
+  DynamoDbTableName:
+    Type: String
+  DynamoDbTableArn:
+    Type: String
   Stage:
     Type: String
     Description: The stage where the application is running
 Resources:
-  UserTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      AttributeDefinitions:
-        - AttributeName: Username
-          AttributeType: S
-      KeySchema:
-        - AttributeName: Username
-          KeyType: HASH
-      BillingMode: PAY_PER_REQUEST
   Api:
     Type: AWS::Serverless::Api
     Properties:
       StageName: !Ref Stage
       OpenApiVersion: '3.0.0'
       Variables:
-        DynamoDBTable: !Ref UserTable
+        DynamoDBTable: !Ref DynamoDbTableName
       DefinitionBody:
         'Fn::Transform':
           Name: 'AWS::Include'
@@ -75,8 +69,9 @@ Resources:
         - Effect: Allow
           Action:
           - dynamodb:PutItem
-          Resource: !GetAtt UserTable.Arn
+          Resource: !Ref DynamoDbTableArn
       InlineCode: |
+        import time
         import json
         import boto3
         
@@ -93,11 +88,23 @@ Resources:
         def create_user(payload, stagevars, context):
             table = dynamodb.Table(stagevars['DynamoDBTable'])
 
+            time_in_ms = int(time.time() * 10**3)
+
             record = {
-              "SourceIP": value(context, "source-ip"),
-              "UserAgent": value(context, "user-agent")
+              "UserId": f"{payload['UserId']}-{str(time_in_ms)[-1]}",
+              "EventTime": time_in_ms,
+              "SourceIP": value(context, 'source-ip'),
+              "UserAgent": value(context, 'user-agent'),
+              "Message": payload['Message']
             }
-            record.update(payload)
+
+            # add max 3 tags to item
+            if isinstance(payload.get('Tags'), list):
+              record.update({
+                f"Tag{str(index)}": str(value)
+                for index, value in enumerate(payload['Tags'][0:3])
+              })
+
             table.put_item(Item=record)
             return record
         

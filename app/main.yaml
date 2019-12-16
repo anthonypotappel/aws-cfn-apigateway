@@ -1,5 +1,6 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: Application stack
+Transform: AWS::Serverless-2016-10-31
+Description: Root stack
 Parameters:
   S3BucketName:
     Type: String
@@ -13,13 +14,34 @@ Parameters:
     Type: String
     Description: GENERATED
 Resources:
+  DynamoDbTable:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub ${S3BucketSecureURL}/dynamodb.yaml
   ApiGateway:
     Type: AWS::CloudFormation::Stack
     Properties:
       Parameters:
         Stage: prod
         S3BucketName: !Ref S3BucketName
+        DynamoDbTableName: !GetAtt DynamoDbTable.Outputs.Name
+        DynamoDbTableArn: !GetAtt DynamoDbTable.Outputs.Arn
       TemplateURL: !Sub ${S3BucketSecureURL}/serverless.yaml
+  DynamoLambdas:
+    Type: AWS::Serverless::Application
+    Properties:
+      Parameters:
+        DynamoDbTableArn: !GetAtt DynamoDbTable.Outputs.Arn
+      Location: ./dynamo-gsi/.aws-sam/build/template.yaml
+  DynamoDbGsiTables:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        DynamoDbTableName: !GetAtt DynamoDbTable.Outputs.Name
+        DynamoDbTableArn: !GetAtt DynamoDbTable.Outputs.Arn
+        DynamoGsiLambda: !GetAtt DynamoLambdas.Outputs.Gsi
+      TemplateURL: !Sub ${S3BucketSecureURL}/dynamodb-gsi.yaml
+
 Outputs:
   EndpointUrl:
     Value: !GetAtt ApiGateway.Outputs.Url
