@@ -16,10 +16,10 @@ paths:
   /posts:
     post:
       requestBody:
-        $ref: '#/components/requestBodies/Post'
+        $ref: '#/components/requestBodies/PostMessage'
       x-amazon-apigateway-integration:
         uri:
-          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UserCreateFunction.Arn}/invocations"
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PostMessageFunction.Arn}/invocations"
         passthroughBehavior: NEVER
         httpMethod: POST
         type: aws
@@ -167,12 +167,12 @@ paths:
 
 components:
   requestBodies:
-    Post:
+    PostMessage:
       description: Create a new Post
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Post'
+            $ref: '#/components/schemas/PostMessage'
   responses:
     ListPosts:
       description: "Successful"
@@ -184,22 +184,28 @@ components:
   schemas:
     UserId:
       type: string
-    Message:
+    Url:
       type: string
       #format: email
+    Description:
+      type: string
     Tags:
       type: array
       items:
         type: string
-    Post:
+    PostMessage:
       type: object
       properties:
         UserId:
           $ref: '#/components/schemas/UserId'
-        Message:
-          $ref: '#/components/schemas/Message'
+        PostUrl:
+          $ref: '#/components/schemas/Url'
+        ImageUrl:
+          $ref: '#/components/schemas/Url'
+        Description:
+          $ref: '#/components/schemas/Description'
         Tags:
           $ref: '#/components/schemas/Tags'
       required:
         - UserId
-        - Message
+        - PostUrl

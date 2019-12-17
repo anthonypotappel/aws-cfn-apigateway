@@ -1,5 +1,5 @@
-AWSTemplateFormatVersion: '2010-09-09'
-Transform: 'AWS::Serverless-2016-10-31'
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
 Description: >-
   This template creates API Gateway and Lambda resources for the backend service.
 Parameters:
@@ -25,9 +25,7 @@ Resources:
         'Fn::Transform':
           Name: 'AWS::Include'
           Parameters:
-            Location: !Sub s3://${S3BucketName}/app/swagger.yaml
-
-
+            Location: !Sub s3://${S3BucketName}/stack/post-manager/swagger.yaml
   APIGatewayRole:
     Type: AWS::IAM::Role
     Properties:
@@ -41,15 +39,12 @@ Resources:
       Path: /
       ManagedPolicyArns:
       - arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
-
-
-  UserCreatePermission:
+  PostMessagePermission:
     Type: AWS::Lambda::Permission
     Properties: 
       Action: lambda:InvokeFunction
-      FunctionName: !GetAtt UserCreateFunction.Arn
+      FunctionName: !GetAtt PostMessageFunction.Arn
       Principal: apigateway.amazonaws.com
-
   UserDeletePermission:
     Type: AWS::Lambda::Permission
     Properties: 
@@ -57,12 +52,12 @@ Resources:
       FunctionName: !GetAtt UserDeleteFunction.Arn
       Principal: apigateway.amazonaws.com
       #SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}
-
-  UserCreateFunction:
+  PostMessageFunction:
     Type: AWS::Serverless::Function
     Properties:
       Runtime: python3.7
-      Handler: index.handler
+      MemorySize: 128
+      Handler: post_message.handler
       Policies:
       - Version: 2012-10-17
         Statement:
@@ -70,59 +65,8 @@ Resources:
           Action:
           - dynamodb:PutItem
           Resource: !Ref DynamoDbTableArn
-      InlineCode: |
-        import time
-        import json
-        import boto3
-        
-        try:
-          dynamodb = boto3.resource('dynamodb')
-        except Exception as e:
-          _raise(Exception, "Message:" + str(e))
-      
-        value = lambda dictionary, key: dictionary[key] if key in dictionary else ""
-        
-        def _raise(exception, error):
-          raise exception(error)
-        
-        def create_user(payload, stagevars, context):
-            table = dynamodb.Table(stagevars['DynamoDBTable'])
+      CodeUri: .
 
-            time_in_ms = int(time.time() * 10**3)
-
-            record = {
-              "UserId": f"{payload['UserId']}-{str(time_in_ms)[-1]}",
-              "EventTime": time_in_ms,
-              "SourceIP": value(context, 'source-ip'),
-              "UserAgent": value(context, 'user-agent'),
-              "Message": payload['Message']
-            }
-
-            # add max 3 tags to item
-            if isinstance(payload.get('Tags'), list):
-              record.update({
-                f"Tag{str(index)}": str(value)
-                for index, value in enumerate(payload['Tags'][0:3])
-              })
-
-            table.put_item(Item=record)
-            return record
-        
-        def handler(event,_):
-            try:
-                record = create_user(event['body-json'],
-                                     event['stage-variables'],
-                                     event['context'])
-        
-                response = {
-                  'statusCode': 200,
-                  'body': json.dumps(record)
-                }
-                return response
-
-            except Exception as e:
-                _raise(Exception, 'Message:' + str(e))
- 
   UserDeleteFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -135,7 +79,6 @@ Resources:
             'body': 'Hello, Lambda Delete!'
           }
           return response
-
 Outputs:
   Url:
     Description: Endpoint URL

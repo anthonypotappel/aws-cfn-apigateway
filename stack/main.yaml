@@ -1,5 +1,4 @@
 AWSTemplateFormatVersion: 2010-09-09
-Transform: AWS::Serverless-2016-10-31
 Description: Root stack
 Parameters:
   S3BucketName:
@@ -17,8 +16,10 @@ Resources:
   DynamoDbTable:
     Type: AWS::CloudFormation::Stack
     Properties:
+      Parameters:
+        S3BucketSecureURL: !Ref S3BucketSecureURL
       TemplateURL: !Sub ${S3BucketSecureURL}/dynamodb.yaml
-  ApiGateway:
+  PostManagerApp:
     Type: AWS::CloudFormation::Stack
     Properties:
       Parameters:
@@ -26,22 +27,7 @@ Resources:
         S3BucketName: !Ref S3BucketName
         DynamoDbTableName: !GetAtt DynamoDbTable.Outputs.Name
         DynamoDbTableArn: !GetAtt DynamoDbTable.Outputs.Arn
-      TemplateURL: !Sub ${S3BucketSecureURL}/serverless.yaml
-  DynamoLambdas:
-    Type: AWS::Serverless::Application
-    Properties:
-      Parameters:
-        DynamoDbTableArn: !GetAtt DynamoDbTable.Outputs.Arn
-      Location: ./dynamo-gsi/.aws-sam/build/template.yaml
-  DynamoDbGsiTables:
-    Type: AWS::CloudFormation::Stack
-    Properties:
-      Parameters:
-        DynamoDbTableName: !GetAtt DynamoDbTable.Outputs.Name
-        DynamoDbTableArn: !GetAtt DynamoDbTable.Outputs.Arn
-        DynamoGsiLambda: !GetAtt DynamoLambdas.Outputs.Gsi
-      TemplateURL: !Sub ${S3BucketSecureURL}/dynamodb-gsi.yaml
-
+      TemplateURL: !Sub ${S3BucketSecureURL}/post-manager/packaged.yaml
 Outputs:
   EndpointUrl:
-    Value: !GetAtt ApiGateway.Outputs.Url
+    Value: !GetAtt PostManagerApp.Outputs.Url
