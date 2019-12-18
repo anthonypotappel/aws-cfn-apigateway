@@ -35,7 +35,7 @@ def post_message(payload, stagevars, context):
     for key, length in optional_items.items():
         if not isinstance(payload.get(key), str):
             continue
-        record.update({key: max_length(payload[key], length)}
+        record.update({key: max_length(payload[key], length)})
 
     # add max 3 tags to item
     if isinstance(payload.get('Tags'), list):
