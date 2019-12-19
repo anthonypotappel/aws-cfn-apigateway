@@ -1,55 +1,50 @@
 
 import os
+import sys
 import json
 import uuid
-import time
+import pytest
+import random
 import requests
 
+from random import randint
 
-BASE_URL = os.environ['AGW_ENDPOINT_URL']
+from helper_functions import _raise
+from helper_functions import loadenv
+from helper_functions import random_string
 
 
-def _raise(exception, error):
-    raise exception(error)
-
-
-def get_headers():
+@pytest.fixture
+def headers():
     """Return headers to make API call"""
     headers = {'Content-type': 'application/json'}
-    if os.environ.get('AWG_KEY'):
-        headers.update({'x-api-key': os.environ['AWG_KEY']})
+    if os.environ.get('AWGKEY'):
+        headers.update({'x-api-key': os.environ['AWGKEY']})
     return headers
 
 
-def random_string(prefix="", postfix="", length=8):
-    """Random string of hex chars"""
-    if length > 32:
-        _raise(ValueError, "Max length 32")
-    return f"{prefix}{uuid.uuid4().hex[:length]}{postfix}"
+@pytest.fixture
+def taglist():
+    tags = 10
+    inputfile = f"{os.path.dirname(__file__)}/random_ipsum.txt"
+
+    with open(inputfile, 'r') as stream:
+        taglist = list(set(stream.read().strip().split('\n')))
+
+    if len(taglist) < tags:
+        _raise(ValueError, f"Max number of unique tags is:{len(tags)}")
+
+    return taglist[:tags]
 
 
-def api_response(response, validate):
-    """Structure response output and (optional) validation"""
-    output = 'Response: ' \
-        + str(response.status_code) + '\n' \
-        + 'Output:\n' \
-        + json.dumps(json.loads(response.text), indent=4, default=str)
-
-    if validate and response.status_code not in accepted_codes:
-        _raise(ValueError, output)
-    return output
-
-
-def api_post(data, path, accepted_codes=[200, 201, 202], validate=False):
-    """Post to API gatewate and return result as a string
-    Optional validate, stops processing on bad response code"""
-    url = '/'.join([BASE_URL, path])
-    response = requests.post(
-        url,
-        data=json.dumps(data),
-        headers=get_headers()
-    )
-    return api_response(response, validate)
+@pytest.fixture
+def userpool():
+    """Generate and return a list of users"""
+    users = 10
+    length = 8
+    prefix = "user-"
+    
+    return [f"{prefix}{uuid.uuid4().hex[:length]}" for _ in range(users)]
 
 
 #def api_delete(path, id, validate=False):
@@ -61,21 +56,34 @@ def api_post(data, path, accepted_codes=[200, 201, 202], validate=False):
 #        headers=get_headers())
 #    return api_response(response, validate)
 
+def post_message(headers, userpool, taglist):
+    """Post single message"""
 
-def test_post_message(validate=False):
-    """Configure input items for API call"""
     data = {
-        "UserId": random_string(prefix="user-"),
+        "UserId": userpool[randint(0,9)],
         "PostUrl": random_string(prefix="https://", postfix=".com", length=32),
-        "Tags": list(map(''.join, zip(*[iter(random_string(length=24))]*8)))
+        "Tags": taglist[0:3]
     }
-    response = api_post(data, "posts", validate=validate)
-    print(response)
+
+    url = f"{os.environ['ENDPOINTURL']}/posts"
+
+    response = requests.post(
+        url,
+        data=json.dumps(data),
+        headers=headers
+    )
+
+    if response.status_code not in [200, 201, 202]:
+        raise ValueError(f"Response {str(response.status_code)}:{response.text}")
+
+    return
 
 
-if __name__ == '__main__':
-    validate = False
-
+def test_post_message(headers, userpool, taglist):
+    """Post a series of messages"""
     for _ in range(10):
-        test_post_message(validate=validate)
-    #print("Verify if records are in Dynamo ... delete start in 3 seconds")
+        random.shuffle(taglist)
+        post_message(headers, userpool, taglist)
+
+
+loadenv()
