@@ -5,6 +5,7 @@ Description: >-
 Parameters:
   Stage:
     Type: String
+    Default: DEV
 Resources:
   Api:
     Type: AWS::Serverless::Api
