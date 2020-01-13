@@ -22,7 +22,7 @@ test: set_environment
 	@echo configstack=$(_CONFIGSTACK)
 	@echo deploystack=$(_DEPLOYSTACK)
 	@echo template=$(_TEMPLATE)
-
+	@echo TODO: Tags
 
 .PHONY: deploy
 deploy: set_environment pre_process stack post_process
@@ -35,7 +35,7 @@ deploy: set_environment pre_process stack post_process
 .PHONY: stack
 stack: read_configuration package
 	@# target: stack
-	@#	ensure configuration is read, and stack is packaged
+	@#  ensure configuration is read, and stack is packaged
 	@#	then deploys stack via AWS CLI
 	@# verify if Configuration Outputs are complete and non-empty
 	@([ ! -z $(ArtifactBucket) ] && [ ! -z $(IAMServiceRole) ]) || \
@@ -50,14 +50,17 @@ stack: read_configuration package
 			--role-arn $(IAMServiceRole) \
 	        --template-file .build/$(_DEPLOYSTACK).yaml \
 	        --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
+			--tags \
+				_CONFIGSTACK="$(_CONFIGSTACK)" \
+				_GIT_REPOSITORY="$(if $(_GIT_REPOSITORY),$(_GIT_REPOSITORY),None)" \
 			$${params} \
 	)
 
 
-.PHONY: set_environment_local
-set_environment_local: 
-	@# target: set_environment_local
-	@# vars set via Makefile: _STACKNAME_CONFIG, _STACKNAME, _REPOSITORY, _WORKDIR
+.PHONY: set_workdir
+set_workdir:
+	@# target: set_workdir
+	@#   setup a workingspace in ${PATH_OF_THIS_MAKEFILE}/.build
 	$(eval _WORKDIR = $(shell \
     	cd $$(dirname "$${BASH_SOURCE[0]}" || echo ".") && pwd || echo ""))
 	@[ -d .build ] || mkdir .build
@@ -69,30 +72,40 @@ set_environment_local:
 	@cat <<< "$${GIT_FUNCTIONS}" >.build/git_functions.sh
 
 
-.PHONY: set_environment_stack
-set_environment_stack: set_environment_local 
-	@# target: set_environment_stack
+.PHONY: set_environment_local
+set_environment_local: set_workdir
+	@# target: set_environment_local
+	@#   _TEMPLATE points to a CloudFormation Template -- typically a Rootstack
+	@#   set by passing template=${path} -- defaults to template.yaml
+	@#   _TEMPLATE_ROOT points to the directory where _TEMPLATE is located
 	$(eval _TEMPLATE = $(if $(template),$(template),template.yaml))
 	$(eval _TEMPLATE_ROOT = $(shell dirname "$(_TEMPLATE)"))
 ifneq ($(_GIT_REPOSITORY),)
-	@#echo SOURCING FROM GIT
-	$(git-env) update_from_git "$(_GIT_REPOSITORY)" "$(_WORKDIR)"
+	@# if git=${repository} is passed, pull from repository into .build/_GIT_ROOT
+	@# can be used together with template={path} -- ${path} starts from _GIT_ROOT
+	$(git-env) pull_from_git "$(_GIT_REPOSITORY)" "$(_WORKDIR)"
 	$(eval _GIT_ROOT = $(shell \
 		$(git-env) printf "$$(git_namestring "$(_GIT_REPOSITORY)" "$(_WORKDIR)")" \
 	))
 	$(if $(_GIT_ROOT),,$(error _GIT_ROOT))
-	@# reconstruct template_root -- fit in .build/repository
-	$(eval _TEMPLATE_ROOT = .build/$(_GIT_ROOT)/$(shell \
-		printf "$$(printf "$(_TEMPLATE_ROOT)" |sed 's/^\///g')" \
+	@# reconstruct _TEMPLATE_ROOT by putting _GIT_ROOT in front of it
+	@# if no template={path} is given the latter (shell printf) part must be empty
+	# TODO: get _GIT_COMMIT and _GIT_BRANCH,
+	# feed_GIT_COMMIT to derive_stackname so it can be pushed to the end
+	$(eval _TEMPLATE_ROOT = .build/$(_GIT_ROOT)$(shell \
+		printf "$$(printf "$(_TEMPLATE_ROOT)" \
+				   |sed 's/^[\/]*/\//g;s/^[\/\.]*$$//g')" \
 	))
-	@# reconstruct template location
+	@# idem. to _TEMPLATE
 	$(eval _TEMPLATE = $(_TEMPLATE_ROOT)/$(shell basename "$(_TEMPLATE)"))
 endif
 
 
 .PHONY: set_environment_aws
-set_environment_aws: set_environment_local set_environment_stack
+set_environment_aws: set_workdir set_environment_local
 	@# target: set_environment_aws
+	@#   define name of _DEPLOYSTACK and _CONFIGSTACK based on _USERID and template
+	@#   location (_TEMPLATE_ROOT). If sourced from GIT, append branchname and commit
 	@# get last 8 chars of USERID
 	$(eval _USERID = $(if $(userid),$(userid),$(shell \
         aws sts get-caller-identity \
@@ -103,17 +116,17 @@ set_environment_aws: set_environment_local set_environment_stack
 		|awk '{print substr($$0,length($$0) - 7,8)}' \
 	)))
 	$(if $(_USERID),,$(error _USERID))
-	@#	if stackname={} option is passed: use this name for DEPLOYSTACK
-	@#	else derive stackname from TEMPLATE_ROOT
+	@# if stackname={} option is passed: use this name for DEPLOYSTACK
+	@# else derive stackname from TEMPLATE_ROOT
 	$(eval _DEPLOYSTACK = $(if $(stackname),$(stackname),$(shell \
-		$(cfn-env) derive_stackname "$(_TEMPLATE_ROOT)" "$(_WORKDIR)" "$(_USERID)" \
+		$(cfn-env) derive_stackname "$(_TEMPLATE_ROOT)" "$(_GIT_ROOT)" "$(_WORKDIR)" "$(_USERID)" \
 	)))
 	$(if $(_DEPLOYSTACK),,$(error _DEPLOYSTACK))
 	$(eval _CONFIGSTACK = ConfigStack-$(_USERID))
 
 
 .PHONY: set_environment
-set_environment: set_environment_local set_environment_stack set_environment_aws
+set_environment: set_environment_local set_environment_aws
 	@# target: set_environment
 	@#   wrapper to set local and  aws environment via dependency rules
 	@#   note: keep three separate targets to ensure ordering is enforced
@@ -185,7 +198,9 @@ ifneq ($(noconfig),true)
 			--no-fail-on-empty-changeset \
 			--template-file .build/configstack.yaml \
 			--capabilities CAPABILITY_NAMED_IAM \
-			--stack-name $(_CONFIGSTACK)
+			--stack-name $(_CONFIGSTACK) \
+			--parameter-overrides \
+				RoleName=ConfigStackDeployRole-$(_USERID)
 endif
 
 
@@ -197,9 +212,11 @@ read_configuration: init_configuration
 	$(eval ArtifactBucket = $(shell \
 		$(cfn-env) printf $$(configstack_output $(_CONFIGSTACK) ArtifactBucket) \
 	))
+	$(if $(ArtifactBucket),,$(error ConfigStack missing parameter: ArtifactBucket))
 	$(eval IAMServiceRole = $(shell \
 		$(cfn-env) printf $$(configstack_output $(_CONFIGSTACK) IAMServiceRole) \
 	))
+	$(if $(IAMServiceRole),,$(error ConfigStack missing parameter: IAMServiceRole))
 
 
 .PHONY: delete
@@ -256,7 +273,18 @@ post: post_process
 	@#	calls target post_process
 	@echo PostProcess ran succesfully: $(_TEMPLATE_ROOT)/post_process.sh
 
-#--query UserId --output text
+
+.PHONY: list
+list: set_environment_aws
+	@# target=list
+	@# iterate over list with describe
+	aws cloudformation list-stacks \
+		--profile $(_AWS_PROFILE) \
+		--no-paginate --query \
+			'StackSummaries[?StackStatus!=`DELETE_COMPLETE`] | [?ParentId==`null`] | [?starts_with(StackName,`$(_USERID)-`)].StackName' \
+		 --output text
+
+
 .PHONY: whoami
 whoami:
 	@# target=whoami:
@@ -372,29 +400,45 @@ function delete_stack_configuration(){
 
 function derive_stackname(){
 	# derive stackname from name of template directory/ repository
-	# input: {TEMPLATE_ROOT} {WORKDIR} {USERID}
+	# input: {_TEMPLATE_ROOT} {_GIT_ROOT} {_WORKDIR} {_USERID}
 	# use _TEMPLATE_ROOT and strip of leading and trailing slashes
 	# select last, or last two (directory-name) columns
 	# if result leads to "." (=working directory): use its name
 	# dirname "/pg/abc/def/template.yaml" |sed 's/^\///g;s/\/$$//g' | awk -F '/' '{print NF == 1 ? $NF : $(NF - 1)"/"$(NF)}'
-	# UserID{8} - Name{64} - Branch(opt){64} - Commit(opt){40}
-    step_1=$$(\
-    	printf "$${1}" \
-    	|sed 's/^\///g;s/\/$$//g;s/^\.build\///g' \
-    	|awk -F '/' '{print NF == 1 ? $$NF : $$(NF - 1)"/"$$(NF)}' \
-    ) || return $$?
-    if [ "$${step_1}" = "." ];then
-        step_1=$$(basename "$${2}") || return $$?
-	fi
+	# UserID{8}-Name{0:80}-Branch{29:*}-Commit{8:*}
+    # |awk -F '/' '{print NF == 1 ? $$1 : $$(NF - 1)"/"$$(NF)}'
+    if [ ! -z "$${2}" ];then
+        # if _GIT_ROOT is passed: _TEMPLATE_ROOT is GIT-based
+		# strip off commit -- this is (re-)appended to the end of the string in step_1
+		# this gives repositories with deep nested templates more human-readable names
+		branch_commit="$$(printf "$${2}" |awk -F "--" '{print $$2"--"$$3}')"
+		step_0="$$(\
+			printf "$${1}" |sed 's/--'$${branch_commit}'$$//g;s/--'$${branch_commit}'\///g')"
+    else
+		# no adjustments, define commit as empty string
+		branch_commit=""
+        step_0="$${1}"
+    fi
 
+    step_1="$$(\
+    	printf "$${step_0}" \
+    	|sed 's/^[\/\.]*//g;s/\/$$//g;s/^\.build\///g' \
+    	|awk -F '/' '{
+			if ( NF == 1 ) print $$1;
+			else if ( NF == 2) print $$(NF - 1)"/"$$(NF);
+			else print $$1"_-_"$$(NF - 1)"/"$$(NF);}' \
+	)" || return $$?
+    if [ "$${step_1}" = "." ];then
+		step_1=$$(basename "$${3}") || return $$?
+	fi
+	[ ! -z "$${branch_commit}" ] && step_1="$${step_1:0:80}-$${branch_commit}"
 	# remove non [a-zA-Z-] chars and leading/ trailing dash
 	# uppercase first char for cosmetics
     step_2=$$(\
     	printf "$${step_1}" \
-    	|sed 's/[^a-zA-Z0-9-]/-/g;s/-\+/-/g;s/^-//g;s/-$$//g' \
+    	|sed 's/[^a-zA-Z0-9_]/-/g;s/-\+/-/g;s/^-//g;s/-$$//g;s/_-_/--/g' \
         |awk '{for (i=1;i<=NF;i++) $$i=toupper(substr($$i,1,1)) substr($$i,2)} 1' \
     ) || return $$?
-
 	# if result from step_2 is empty: paste in Unknown-StackName
 	# elif char-length >127-9 (127=max naming length on AWS, 9=partial USERID + -)
 	#   attain first 109, and last 8 chars (unique commitIDs), separated by double-dash
@@ -416,7 +460,7 @@ function derive_stackname(){
 		step_3="$${step_2}"
     fi
 	# last 8 chars of USERID + result from step_3
-    printf "$${3: $$(($${3}-8)):8}-$${step_3}"
+    printf "$${4:$$(($${4}-8)):8}-$${step_3}"
 	return $$?
 }
 
@@ -427,6 +471,9 @@ cat << CONFIGURATION_STACK >./.build/configstack.yaml
 AWSTemplateFormatVersion: 2010-09-09
 Transform: AWS::Serverless-2016-10-31
 Description: ConfigurationStack
+Parameters:
+  RoleName:
+    Type: String
 Resources:
   Bucket:
     Type: AWS::S3::Bucket
@@ -446,6 +493,7 @@ Resources:
   ServiceRoleForCloudFormation:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Ref RoleName
       AssumeRolePolicyDocument:
         Statement:
         - Effect: Allow
@@ -577,8 +625,9 @@ function git_parameter(){
     return $$?
 }
 
+
 function git_namestring(){
-    # Return a string formatted as RepoName-Branch-RepoId-Commit
+    # Return a string formatted as RepoName--Branch--Commit
 	repository="$${1}"
 	workdir="$${2}"
     rname="$$(git_destination "$${repository}" "$${workdir}")" || return $$?
@@ -586,18 +635,20 @@ function git_namestring(){
     commit="$$(git_parameter "$${repository}" commit latest)" || return $$?
 	if [ "$${commit}" = "latest" ];then
 		remote=$$(printf "$${repository}" |sed 's/?.*//g') || return $$?
-		commit=$$(\
-			git ls-remote "$${remote}" refs/heads/"$${branch}" \
-			|awk '{print $$1}' \
-		) || return $$?
-		[ -z "$${commit}" ] && return 1
+		# always return true to 
+		heads=$$(git ls-remote "$${remote}" refs/heads/"$${branch}")
+		commit=$$(printf "$${heads}" |awk '{print $$1}')
+		if [ -z "$${commit}" ];then
+			>&2 echo "ERROR: cant find branch \"$${branch}\" on \"$${remote}\""
+			return 1
+		fi
 	fi
-	printf "$${rname}-$${branch}-$${commit}" 
+	printf "$${rname}--$${branch}--$${commit}"
     return $$?
 }
 
-function update_from_git(){
-    # Fetch repository and checkout to specified branch tag/commit
+function pull_from_git(){
+    # pull repository and checkout to specified branch tag/commit
 	repository="$${1}"
 	workdir="$${2}"
     branch=$$(git_parameter "$${repository}" branch master) || return $$?
@@ -655,10 +706,10 @@ help:
 	@echo '  help               Show this help'
 	@echo ''
 	@echo 'Configuration:'
-	@echo 'template=$${_TEMPLATE}      Name of CloudFormation rootstack template,'
-	@echo '                            (default: "./template.yaml")'
 	@echo 'profile=$${AWS_PROFILE}     Set AWS CLI profile (default: "default", '
 	@echo '                             check available profiles: "aws configure list")'
+	@echo 'template=$${_TEMPLATE}      Name of CloudFormation rootstack template,'
+	@echo '                            (default: "./template.yaml")'
 	@echo 'git=$${GITURL || GITDIR}    Optionally retrieve stack from Git'
 	@echo 'stackname=$${STACKNAME}     Set STACKNAME manually (not recommended)'
 	@# echo 'noconfig=true            Skips building Configuration Stack'
