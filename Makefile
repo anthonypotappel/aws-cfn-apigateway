@@ -1,11 +1,12 @@
 # --------------------------------------------------------------------
-# Copyright (c) 2020 LINKIT, The Netherlands. All Rights Reserved.
-# Author(s): Anthony Potappel
-# 
+# Copyright (c) 2020 Anthony Potappel - LINKIT, The Netherlands.
+#
 # This software may be modified and distributed under the terms of the
-# MIT license. See the LICENSE file for details.
+# MIT license. Type "make license" for more details.
 # --------------------------------------------------------------------
 
+NAME := CloudFormation Makefile
+VERSION := 0.9.20200114
 SHELL := /bin/bash
 
 # profile=
@@ -14,15 +15,9 @@ _AWS_PROFILE = \
 
 _GIT_REPOSITORY = $(if $(git),$(git),)
 
-
-.PHONY: test
-test: set_environment
-	@echo workdir=$(_WORKDIR)
-	@echo templateroot=$(_TEMPLATE_ROOT)
-	@echo configstack=$(_CONFIGSTACK)
-	@echo deploystack=$(_DEPLOYSTACK)
-	@echo template=$(_TEMPLATE)
-	@echo TODO: Tags
+.PHONY: help
+help: show_help
+	@# target: help
 
 .PHONY: deploy
 deploy: set_environment pre_process stack post_process
@@ -90,7 +85,6 @@ ifneq ($(_GIT_REPOSITORY),)
 	$(if $(_GIT_ROOT),,$(error _GIT_ROOT))
 	@# reconstruct _TEMPLATE_ROOT by putting _GIT_ROOT in front of it
 	@# if no template={path} is given the latter (shell printf) part must be empty
-	# TODO: get _GIT_COMMIT and _GIT_BRANCH,
 	# feed_GIT_COMMIT to derive_stackname so it can be pushed to the end
 	$(eval _TEMPLATE_ROOT = .build/$(_GIT_ROOT)$(shell \
 		printf "$$(printf "$(_TEMPLATE_ROOT)" \
@@ -145,13 +139,15 @@ package: set_environment
 
 
 .PHONY: pre_process
-pre_process: set_environment
+pre_process: set_environment read_configuration
 	@# target: pre_process
 	@#	calls ./pre_process.sh
 	[ ! -s "$(_TEMPLATE_ROOT)/pre_process.sh" ] || \
 	( \
 		cd "$(_TEMPLATE_ROOT)" && \
-		export _AWS_PROFILE=$(_AWS_PROFILE); \
+		export AWS_PROFILE=$(_AWS_PROFILE); \
+		export ConfigurationBucket=$(ArtifactBucket); \
+		export BucketPrefix=$(_DEPLOYSTACK); \
 		echo "RUNSCRIPT:$(_TEMPLATE_ROOT)/pre_process.sh"; \
 		bash ./pre_process.sh; \
 		exit_code="$$?"; \
@@ -246,9 +242,7 @@ clean:
 	@# target=clean:
 	@#  delete local ./.build directory
 	@#	add stack=$${DIRECTORY} to also delete stack data
-	# TODO: should delete all stacks related by listing with basepath (useful when used with GIT)
-	# SHOULD SKIP protected stacks -- protection is manual, makefile never deletes protected
-	# Note that configstack cant be deleted as long as there is one protected stack -- but s3 could be cleaned
+	# Note that configstack cant be deleted as long as there is one stack
 #ifneq ($(_TEMPLATE),)
 	@# if either _TEMPLATE or _GIT_REPOSITORY is set, do full stack delete
 ifneq ($(filter %,$(_TEMPLATE) $(_GIT_REPOSITORY)),)
@@ -292,9 +286,38 @@ whoami:
 	aws sts get-caller-identity --profile "$(_AWS_PROFILE)"
 
 
+.PHONY: version
+version:
+	@# target=version:
+	@echo Version=$(VERSION)
+
+
+.PHONY: license
+license: version
+	@# target=license:
+	@echo License notice:
+	@cat <<< "$${LICENSE}"
+
+
+.PHONY: check
+check: set_environment
+	@echo workdir=$(_WORKDIR)
+	@echo templateroot=$(_TEMPLATE_ROOT)
+	@echo configstack=$(_CONFIGSTACK)
+	@echo deploystack=$(_DEPLOYSTACK)
+	@echo template=$(_TEMPLATE)
+	@echo TODO List:
+	@echo "- (continuous) -- refactor and improve doc-strings"
+	@echo "- make clean should delete all related stacks, determined by: make list"
+	@echo "- clean s3 config folder as part of stack delete"
+	@echo "- if stack is protected, skip deletion (vs. giving an error now)"
+	@echo "- test, with cfn-python-lint"
+	@echo "- check if tools exist on host, e.g. git and cfn-python-lint -- or error"
+
 export CFN_FUNCTIONS
 export GIT_FUNCTIONS
 export GIT_IGNORE
+export LICENSE
 
 define cfn-env
 	source ./.build/cfn_functions.sh; \
@@ -428,7 +451,8 @@ function derive_stackname(){
 			else if ( NF == 2) print $$(NF - 1)"/"$$(NF);
 			else print $$1"_-_"$$(NF - 1)"/"$$(NF);}' \
 	)" || return $$?
-    if [ "$${step_1}" = "." ];then
+
+    if [ -z "$${step_1}" ];then
 		step_1=$$(basename "$${3}") || return $$?
 	fi
 	[ ! -z "$${branch_commit}" ] && step_1="$${step_1:0:80}-$${branch_commit}"
@@ -689,20 +713,45 @@ define GIT_IGNORE
 IGNORE_FILE_BUILD
 endef
 
-help:
-	@echo 'Synopsis:'
+define LICENSE
+Copyright (c) 2020 Anthony Potappel - LINKIT, The Netherlands.
+
+This software may be modified and distributed under the following terms;
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+endef
+
+.PHONY: show_help
+show_help:
+	@echo '$(NAME) - v$(VERSION) (major.minor.lastrevision)'
 	@echo '  Makefile to Deploy, Update or Delete Stacks on AWS via CloudFormation'
 	@echo 'Usage:'
 	@echo '  command: make [TARGET] [CONFIGURATION]'
 	@echo ''
 	@echo 'Targets:'
-	@echo '  deploy (default)   Deploy or Update a Stack (includes Pre- and PostProcess)'
+	@echo '  deploy             Deploy or Update a Stack (includes Pre- and PostProcess)'
 	@echo '  delete             Delete a Stack (excludes related configuration data)'
-	@echo '  clean              Delete local ./.build directory'
-	@echo '                     Add stack=$${DIRECTORY} to also delete a Stack, and'
+	@echo '  clean              Delete local ./.build directory'. Add stacks=destroy to
+	@echo '                     destroy all (un-protected) Stacks starting with UserId-'
 	@echo '                     wipe Stack related configuration data'
-	@echo '  pre                Run $${DIRECTORY}/pre_process.sh if file exists'
-	@echo '  post               Run $${DIRECTORY}/post_process.sh if file exists'
+	@echo '  pre                Run $${TEMPLATE_ROOT}/pre_process.sh if file exists'
+	@echo '  post               Run $${TEMPLATE_ROOT}/post_process.sh if file exists'
 	@echo '  help               Show this help'
 	@echo ''
 	@echo 'Configuration:'
